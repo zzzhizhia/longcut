@@ -99,6 +99,9 @@ async function handler(req: NextRequest) {
       return NextResponse.json({
         cached: true,
         videoId: videoId,
+        // Include the database UUID so the client can pass it directly to
+        // notes/save endpoints, avoiding a youtube_id lookup that can fail.
+        videoDbId: cachedVideo.id,
         topics: cachedVideo.topics,
         transcript: migratedTranscript,
         videoInfo: {

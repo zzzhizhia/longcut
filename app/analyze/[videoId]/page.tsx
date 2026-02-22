@@ -201,6 +201,9 @@ export default function AnalyzePage() {
   const [error, setError] = useState("");
   const [isRateLimitError, setIsRateLimitError] = useState(false);
   const [videoId, setVideoId] = useState<string | null>(null);
+  // Database UUID for the video_analyses row — used to bypass youtube_id lookups
+  // when saving notes, which avoids 404 errors if the row wasn't persisted earlier.
+  const [videoDbId, setVideoDbId] = useState<string | null>(null);
   const [videoInfo, setVideoInfo] = useState<VideoInfo | null>(null);
   const [videoPreview, setVideoPreview] = useState<string>("");
   const [transcript, setTranscript] = useState<TranscriptSegment[]>([]);
@@ -703,6 +706,7 @@ export default function AnalyzePage() {
       setVideoDuration(0);
       setCitationHighlight(null);
       setVideoInfo(null);
+      setVideoDbId(null);
       setVideoPreview("");
       setPlaybackCommand(null);
       setIsPlayingAll(false);
@@ -740,6 +744,11 @@ export default function AnalyzePage() {
           const cacheData = await cacheResponse.json();
 
           if (cacheData.cached) {
+            // Capture database UUID for notes saving
+            if (cacheData.videoDbId) {
+              setVideoDbId(cacheData.videoDbId);
+            }
+
             const sanitizedTranscript = normalizeTranscript(cacheData.transcript);
             const flattenedTranscript = isFlattenedTranscript(sanitizedTranscript, cacheData.videoInfo);
 
@@ -1232,6 +1241,11 @@ export default function AnalyzePage() {
         ...candidate,
         key: `${candidate.quote.timestamp}|${normalizeWhitespace(candidate.quote.text)}`
       }));
+
+      // Capture database UUID for notes saving
+      if (topicsData.videoDbId) {
+        setVideoDbId(topicsData.videoDbId);
+      }
 
       const takeawaysResult = await takeawaysSettledPromise;
 
@@ -1790,6 +1804,10 @@ export default function AnalyzePage() {
     try {
       const note = await saveNote({
         youtubeId: videoId,
+        // Pass the database UUID directly so the notes API doesn't have to
+        // look it up by youtube_id — which fails if the video_analyses row
+        // wasn't persisted (e.g. FK error during initial save).
+        videoId: videoDbId ?? undefined,
         source,
         sourceId: sourceId ?? undefined,
         text,
@@ -1801,7 +1819,7 @@ export default function AnalyzePage() {
       console.error("Failed to save note", error);
       toast.error("Failed to save note");
     }
-  }, [videoId, user, promptSignInForNotes]);
+  }, [videoId, videoDbId, user, promptSignInForNotes]);
 
   const handleTakeNoteFromSelection = useCallback((payload: SelectionActionPayload) => {
     if (!user) {

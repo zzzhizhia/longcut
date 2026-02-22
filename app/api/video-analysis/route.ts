@@ -382,7 +382,11 @@ async function handler(req: NextRequest) {
         suggestedQuestions: cachedVideo.suggested_questions,
         themes,
         cached: true,
-        cacheDate: cachedVideo.created_at
+        cacheDate: cachedVideo.created_at,
+        // Include the database UUID so the client can pass it directly to
+        // notes/save endpoints, avoiding a youtube_id lookup that fails when
+        // the video_analyses row wasn't persisted due to earlier FK errors.
+        videoDbId: cachedVideo.id
       });
 
       if (!user && guestState) {
@@ -483,7 +487,10 @@ async function handler(req: NextRequest) {
       topicCandidates: validatedData.includeCandidatePool
         ? topicCandidates ?? []
         : undefined,
-      modelUsed
+      modelUsed,
+      // Include the database UUID so the client can pass it directly to
+      // notes/save endpoints, avoiding a youtube_id lookup that can fail.
+      videoDbId: saveResult.success ? saveResult.videoId : undefined
     });
 
     if (!user && guestState) {
