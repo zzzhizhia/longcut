@@ -153,12 +153,7 @@ export default function AllNotesPage() {
       setNotes(fetchedNotes);
     } catch (err) {
       console.error('Error loading notes:', err);
-      if (err instanceof Error && err.message.includes('401')) {
-        // Redirect to home if not authenticated
-        router.push('/');
-      } else {
-        setError('Failed to load notes. Please try again.');
-      }
+      setError('Failed to load notes. Please try again.');
     } finally {
       setLoading(false);
     }

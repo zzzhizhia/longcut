@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { TranscriptSegment } from '@/lib/types';
-import { withSecurity, SECURITY_PRESETS } from '@/lib/security-middleware';
+
 import { generateAIResponse } from '@/lib/ai-client';
 import { quickPreviewSchema } from '@/lib/schemas';
 import { safeJsonParse } from '@/lib/json-utils';
@@ -144,4 +144,4 @@ ${trimmedPreview}
   }
 }
 
-export const POST = withSecurity(handler, SECURITY_PRESETS.PUBLIC);
+export const POST = handler;

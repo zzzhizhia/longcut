@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { withSecurity } from "@/lib/security-middleware";
+
 import { generateAIResponse } from "@/lib/ai-client";
 import { z } from "zod";
 
@@ -128,13 +128,4 @@ async function handler(req: NextRequest) {
   return NextResponse.json({ cleanedText });
 }
 
-export const POST = withSecurity(handler, {
-  requireAuth: true,
-  rateLimit: {
-    windowMs: 60 * 1000,
-    maxRequests: 20,
-  },
-  maxBodySize: 32 * 1024,
-  allowedMethods: ["POST"],
-  csrfProtection: true,
-});
+export const POST = handler;

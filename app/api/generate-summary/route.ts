@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { TranscriptSegment, VideoInfo } from '@/lib/types';
-import { withSecurity } from '@/lib/security-middleware';
-import { RATE_LIMITS } from '@/lib/rate-limiter';
+
 import { generateAIResponse } from '@/lib/ai-client';
 import { summaryTakeawaysSchema } from '@/lib/schemas';
 import { normalizeTimestampSources } from '@/lib/timestamp-normalization';
@@ -340,9 +339,4 @@ async function handler(request: NextRequest) {
   }
 }
 
-// Apply security with generation rate limits
-export const POST = withSecurity(handler, {
-  rateLimit: RATE_LIMITS.AUTH_GENERATION, // Use authenticated rate limit
-  maxBodySize: 10 * 1024 * 1024, // 10MB for large transcripts
-  allowedMethods: ['POST']
-});
+export const POST = handler;

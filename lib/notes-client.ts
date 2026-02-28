@@ -1,4 +1,3 @@
-import { csrfFetch } from '@/lib/csrf-client';
 import { Note, NoteMetadata, NoteSource, NoteWithVideo } from '@/lib/types';
 
 interface SaveNotePayload {
@@ -14,7 +13,7 @@ export async function fetchNotes(params: { youtubeId: string }): Promise<Note[]>
   const query = new URLSearchParams();
   query.set('youtubeId', params.youtubeId);
 
-  const response = await csrfFetch.get(`/api/notes?${query.toString()}`);
+  const response = await fetch(`/api/notes?${query.toString()}`);
 
   if (!response.ok) {
     throw new Error('Failed to fetch notes');
@@ -25,7 +24,11 @@ export async function fetchNotes(params: { youtubeId: string }): Promise<Note[]>
 }
 
 export async function saveNote(payload: SaveNotePayload): Promise<Note> {
-  const response = await csrfFetch.post('/api/notes', payload);
+  const response = await fetch('/api/notes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
@@ -37,7 +40,11 @@ export async function saveNote(payload: SaveNotePayload): Promise<Note> {
 }
 
 export async function enhanceNoteQuote(quote: string): Promise<string> {
-  const response = await csrfFetch.post('/api/notes/enhance', { quote });
+  const response = await fetch('/api/notes/enhance', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ quote })
+  });
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
@@ -55,7 +62,8 @@ export async function enhanceNoteQuote(quote: string): Promise<string> {
 }
 
 export async function deleteNote(noteId: string): Promise<void> {
-  const response = await csrfFetch.delete('/api/notes', {
+  const response = await fetch('/api/notes', {
+    method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ noteId })
   });
@@ -67,7 +75,7 @@ export async function deleteNote(noteId: string): Promise<void> {
 }
 
 export async function fetchAllNotes(): Promise<NoteWithVideo[]> {
-  const response = await csrfFetch.get('/api/notes/all');
+  const response = await fetch('/api/notes/all');
 
   if (!response.ok) {
     throw new Error('Failed to fetch all notes');

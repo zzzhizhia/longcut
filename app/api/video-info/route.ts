@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractVideoId } from '@/lib/utils';
-import { withSecurity, SECURITY_PRESETS } from '@/lib/security-middleware';
+
 import { getMockVideoInfo, shouldUseMockVideoInfo } from '@/lib/mock-data';
 
 async function handler(request: NextRequest) {
@@ -140,4 +140,4 @@ async function handler(request: NextRequest) {
   }
 }
 
-export const POST = withSecurity(handler, SECURITY_PRESETS.PUBLIC);
+export const POST = handler;

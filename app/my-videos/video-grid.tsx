@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import Image from 'next/image';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { useAuth } from '@/contexts/auth-context';
+
 
 interface VideoAnalysis {
   id: string;
@@ -24,11 +24,8 @@ interface VideoAnalysis {
 
 interface UserVideo {
   id: string;
-  user_id: string;
-  video_id: string;
   accessed_at: string;
   is_favorite: boolean;
-  notes: string | null;
   video: VideoAnalysis;
 }
 
@@ -52,7 +49,6 @@ const buildCanonicalSlug = (video: VideoAnalysis): string | null => {
 };
 
 export function VideoGrid({ videos }: VideoGridProps) {
-  const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [showFavorites, setShowFavorites] = useState(false);
   const [favoriteStatuses, setFavoriteStatuses] = useState<Record<string, boolean>>(
@@ -90,11 +86,6 @@ export function VideoGrid({ videos }: VideoGridProps) {
   const handleToggleFavorite = async (e: React.MouseEvent, userVideoId: string, videoYoutubeId: string) => {
     e.preventDefault();
     e.stopPropagation();
-
-    if (!user) {
-      toast.error('Please sign in to save favorites');
-      return;
-    }
 
     setUpdatingFavorites(prev => new Set(prev).add(userVideoId));
     const currentStatus = favoriteStatuses[userVideoId];
@@ -187,7 +178,7 @@ export function VideoGrid({ videos }: VideoGridProps) {
                 <div className="absolute bottom-1.5 right-1.5 bg-black/80 text-white px-1.5 py-0.5 rounded text-[11px]">
                   {formatDuration(userVideo.video.duration)}
                 </div>
-                {user && (
+                {(
                   <Button
                     variant="ghost"
                     size="icon"

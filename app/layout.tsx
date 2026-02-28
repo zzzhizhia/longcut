@@ -3,7 +3,6 @@ import Link from "next/link";
 import Image from "next/image";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Analytics } from '@vercel/analytics/react';
-import { AuthProvider } from '@/contexts/auth-context';
 import { UserMenu } from '@/components/user-menu';
 import { ToastProvider } from '@/components/toast-provider';
 import { Footer } from '@/components/footer';
@@ -37,8 +36,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-white text-[#787878]`}
       >
-        <AuthProvider>
-          <div className="min-h-screen flex flex-col">
+        <div className="min-h-screen flex flex-col">
             <header className="pointer-events-none fixed top-0 left-0 right-0 z-50 px-6 py-5">
               <div className="pointer-events-none flex w-full items-center justify-between gap-6">
                 <Link
@@ -66,7 +64,6 @@ export default function RootLayout({
             <Footer />
           </div>
           <ToastProvider />
-        </AuthProvider>
         <Analytics />
       </body>
     </html>

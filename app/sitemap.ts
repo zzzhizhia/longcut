@@ -1,16 +1,9 @@
 import { MetadataRoute } from 'next';
-import { createClient } from '@/lib/supabase/server';
 import { buildVideoSlug } from '@/lib/utils';
+import { getVideosForSitemap } from '@/lib/db-queries';
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const supabase = await createClient();
-
-  // Fetch all videos with their slugs and update times
-  const { data: videos } = await supabase
-    .from('video_analyses')
-    .select('slug, updated_at, youtube_id, title')
-    .order('updated_at', { ascending: false })
-    .limit(50000); // Google's sitemap limit
+  const videos = getVideosForSitemap();
 
   const normalizeSlug = (video: { slug: string | null; youtube_id: string | null; title: string | null }) => {
     const youtubeId = video.youtube_id ?? '';
@@ -24,8 +17,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     return canonicalSlug || video.slug || null;
   };
 
-  // Generate URLs for all video pages
-  const videoUrls: MetadataRoute.Sitemap = (videos || [])
+  const videoUrls: MetadataRoute.Sitemap = videos
     .map(video => {
       const slug = normalizeSlug(video);
 
@@ -42,7 +34,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     })
     .filter(Boolean) as MetadataRoute.Sitemap;
 
-  // Static pages
   const staticPages: MetadataRoute.Sitemap = [
     {
       url: 'https://longcut.ai',
@@ -50,22 +41,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: 'daily',
       priority: 1.0
     },
-    {
-      url: 'https://longcut.ai/pricing',
-      lastModified: new Date(),
-      changeFrequency: 'weekly',
-      priority: 0.9
-    },
-    {
-      url: 'https://longcut.ai/library',
-      lastModified: new Date(),
-      changeFrequency: 'daily',
-      priority: 0.7
-    }
   ];
 
   return [...staticPages, ...videoUrls];
 }
 
-// Revalidate sitemap every hour
 export const revalidate = 3600;

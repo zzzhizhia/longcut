@@ -1,74 +1,38 @@
 import { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
 import { VideoPageClient } from './video-page-client';
 import { Topic, TranscriptSegment, VideoInfo } from '@/lib/types';
 import { buildVideoSlug } from '@/lib/utils';
+import { getVideoByYoutubeId, parseVideoRow } from '@/lib/db-queries';
+import { getDb } from '@/lib/db';
 
 // Extract video ID from slug (format: "title-words-videoId")
 function extractVideoIdFromSlug(slug: string): string | null {
-  // Robustly grab the last 11 characters; YouTube IDs can contain hyphens/underscores
   const cleaned = slug.trim().replace(/\/$/, '');
   const potentialId = cleaned.slice(-11);
-
   return /^[A-Za-z0-9_-]{11}$/.test(potentialId) ? potentialId : null;
 }
 
-type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
-
-interface VideoAnalysisRow {
-  youtube_id: string;
-  title: string;
-  author: string | null;
-  duration: number | null;
-  thumbnail_url: string | null;
-  transcript: TranscriptSegment[] | null;
-  topics: Topic[] | null;
-  summary: string | Record<string, unknown> | null;
-  suggested_questions?: string[] | null;
-  slug?: string | null;
-  created_at?: string;
-  updated_at?: string;
-}
-
-async function resolveVideoFromSlug(
-  supabase: SupabaseServerClient,
-  slug: string
-): Promise<{ video: VideoAnalysisRow; videoId: string; canonicalSlug: string } | null> {
+function resolveVideoFromSlug(slug: string) {
   const videoIdFromSlug = extractVideoIdFromSlug(slug);
 
-  // 1) Try by youtube_id if we could extract one
+  // 1) Try by youtube_id
   if (videoIdFromSlug) {
-    const { data, error } = await supabase
-      .from('video_analyses')
-      .select('*')
-      .eq('youtube_id', videoIdFromSlug)
-      .maybeSingle();
-
-    if (error && error.code !== 'PGRST116') {
-      console.error('Error fetching video analysis by youtube_id', { slug, videoIdFromSlug, error });
-    }
-
-    if (data) {
-      const canonicalSlug = buildVideoSlug(data.title, data.youtube_id);
-      return { video: data, videoId: data.youtube_id, canonicalSlug };
+    const row = getVideoByYoutubeId(videoIdFromSlug);
+    if (row) {
+      const video = parseVideoRow(row);
+      const canonicalSlug = buildVideoSlug(video.title, video.youtube_id);
+      return { video, videoId: video.youtube_id, canonicalSlug };
     }
   }
 
-  // 2) Try by stored slug (legacy rows may not include the videoId suffix)
-  const { data, error } = await supabase
-    .from('video_analyses')
-    .select('*')
-    .eq('slug', slug)
-    .maybeSingle();
-
-  if (error && error.code !== 'PGRST116') {
-    console.error('Error fetching video analysis by slug', { slug, error });
-  }
-
-  if (data) {
-    const canonicalSlug = buildVideoSlug(data.title, data.youtube_id);
-    return { video: data, videoId: data.youtube_id, canonicalSlug };
+  // 2) Try by stored slug
+  const db = getDb();
+  const row = db.prepare('SELECT * FROM video_analyses WHERE slug = ?').get(slug) as any;
+  if (row) {
+    const video = parseVideoRow(row);
+    const canonicalSlug = buildVideoSlug(video.title, video.youtube_id);
+    return { video, videoId: video.youtube_id, canonicalSlug };
   }
 
   return null;
@@ -78,11 +42,9 @@ interface PageProps {
   params: Promise<{ slug: string }>;
 }
 
-// Generate metadata for SEO
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params;
-  const supabase = await createClient();
-  const resolved = await resolveVideoFromSlug(supabase, slug);
+  const resolved = resolveVideoFromSlug(slug);
 
   if (!resolved) {
     return {
@@ -94,10 +56,9 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const { video, videoId, canonicalSlug } = resolved;
   const slugForMeta = canonicalSlug || slug;
 
-  // Extract summary content
   const summary = typeof video.summary === 'string'
     ? video.summary
-    : (video.summary as any)?.content || '';
+    : '';
 
   const description = summary
     ? summary.slice(0, 160).trim() + (summary.length > 160 ? '...' : '')
@@ -161,11 +122,9 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   };
 }
 
-// Main page component (Server Component)
 export default async function VideoPage({ params }: PageProps) {
   const { slug } = await params;
-  const supabase = await createClient();
-  const resolved = await resolveVideoFromSlug(supabase, slug);
+  const resolved = resolveVideoFromSlug(slug);
 
   if (!resolved) {
     const fallbackVideoId = extractVideoIdFromSlug(slug);
@@ -184,12 +143,10 @@ export default async function VideoPage({ params }: PageProps) {
 
   const { video, videoId, canonicalSlug } = resolved;
 
-  // Redirect old/non-canonical slugs (e.g., ones created before video IDs were appended)
   if (canonicalSlug && canonicalSlug !== slug) {
     redirect(`/v/${canonicalSlug}`);
   }
 
-  // Parse JSON fields
   const transcript: TranscriptSegment[] = Array.isArray(video.transcript)
     ? video.transcript
     : [];
@@ -208,32 +165,26 @@ export default async function VideoPage({ params }: PageProps) {
     tags: []
   };
 
-  // Extract summary
   const summary = typeof video.summary === 'string'
     ? video.summary
-    : (video.summary as any)?.content || '';
+    : '';
 
-  // Format duration for Schema.org (ISO 8601 duration format)
   const formatDuration = (seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     const secs = Math.floor(seconds % 60);
-
     let duration = 'PT';
     if (hours > 0) duration += `${hours}H`;
     if (minutes > 0) duration += `${minutes}M`;
     if (secs > 0 || duration === 'PT') duration += `${secs}S`;
-
     return duration;
   };
 
-  // Create full transcript text for search engines
   const fullTranscriptText = transcript
     .map(segment => segment.text)
     .join(' ')
-    .slice(0, 5000); // Limit to first 5000 chars for structured data
+    .slice(0, 5000);
 
-  // JSON-LD structured data for rich results
   const structuredData = {
     "@context": "https://schema.org",
     "@type": "VideoObject",
@@ -244,11 +195,6 @@ export default async function VideoPage({ params }: PageProps) {
     "duration": formatDuration(video.duration || 0),
     "contentUrl": `https://www.youtube.com/watch?v=${videoId}`,
     "embedUrl": `https://www.youtube.com/embed/${videoId}`,
-    "interactionStatistic": {
-      "@type": "InteractionCounter",
-      "interactionType": "https://schema.org/WatchAction",
-      "userInteractionCount": 0
-    },
     "publisher": {
       "@type": "Organization",
       "name": "LongCut",
@@ -260,7 +206,6 @@ export default async function VideoPage({ params }: PageProps) {
     }
   };
 
-  // Article structured data for the transcript/analysis
   const articleStructuredData = {
     "@context": "https://schema.org",
     "@type": "Article",
@@ -287,7 +232,6 @@ export default async function VideoPage({ params }: PageProps) {
 
   return (
     <>
-      {/* Structured Data */}
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
@@ -297,7 +241,6 @@ export default async function VideoPage({ params }: PageProps) {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(articleStructuredData) }}
       />
 
-      {/* Server-rendered content for SEO */}
       <div className="sr-only">
         <h1>{video.title}</h1>
         <p>By {video.author}</p>
@@ -317,7 +260,6 @@ export default async function VideoPage({ params }: PageProps) {
         </div>
       </div>
 
-      {/* Client-side interactive component */}
       <VideoPageClient
         videoId={videoId}
         slug={slug}
@@ -336,5 +278,4 @@ export default async function VideoPage({ params }: PageProps) {
   );
 }
 
-// Enable ISR (Incremental Static Regeneration) - revalidate every 24 hours
 export const revalidate = 86400;

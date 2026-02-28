@@ -13,10 +13,8 @@ interface LanguageSelectorProps {
   selectedLanguage: string | null;
   availableLanguages?: string[];
   currentSourceLanguage?: string;
-  isAuthenticated?: boolean;
   onTabSwitch: (tab: "transcript" | "chat" | "notes") => void;
   onLanguageChange?: (languageCode: string | null) => void;
-  onRequestSignIn?: () => void;
 }
 
 interface LanguageOption {
@@ -32,11 +30,9 @@ interface LanguageSelectorMenuProps {
   filteredLanguages: LanguageOption[];
   selectedLanguage: string | null;
   currentSourceLanguage?: string;
-  isAuthenticated: boolean;
   languageSearch: string;
   onLanguageSearchChange: (value: string) => void;
   onLanguageSelect: (langCode: string) => void;
-  onRequestSignIn?: () => void;
   onMenuMouseEnter: () => void;
   onMenuMouseLeave: () => void;
 }
@@ -46,10 +42,8 @@ export function LanguageSelector({
   selectedLanguage,
   availableLanguages = [],
   currentSourceLanguage,
-  isAuthenticated = false,
   onTabSwitch,
   onLanguageChange,
-  onRequestSignIn,
 }: LanguageSelectorProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [languageSearch, setLanguageSearch] = useState("");
@@ -183,13 +177,6 @@ export function LanguageSelector({
 
   // Handle language selection
   const handleLanguageSelect = useCallback((langCode: string) => {
-    // Handle auth check - only require auth for non-native, non-English languages
-    const langOption = languagesWithNativeStatus.find(l => l.code === langCode);
-    if (!isAuthenticated && !langOption?.isNative && langCode !== 'en') {
-      onRequestSignIn?.();
-      return;
-    }
-
     // Clear any pending close timeout
     if (closeTimeoutRef.current) {
       clearTimeout(closeTimeoutRef.current);
@@ -210,7 +197,7 @@ export function LanguageSelector({
 
     setIsMenuOpen(false);
     setLanguageSearch("");
-  }, [isAuthenticated, languagesWithNativeStatus, currentLanguageCode, selectedLanguage, activeTab, onLanguageChange, onTabSwitch, onRequestSignIn]);
+  }, [languagesWithNativeStatus, currentLanguageCode, selectedLanguage, activeTab, onLanguageChange, onTabSwitch]);
 
   // Handle outside click - close menu without tab switch
   useEffect(() => {
@@ -295,11 +282,9 @@ export function LanguageSelector({
           filteredLanguages={filteredLanguages}
           selectedLanguage={selectedLanguage}
           currentSourceLanguage={currentSourceLanguage}
-          isAuthenticated={isAuthenticated}
           languageSearch={languageSearch}
           onLanguageSearchChange={setLanguageSearch}
           onLanguageSelect={handleLanguageSelect}
-          onRequestSignIn={onRequestSignIn}
           onMenuMouseEnter={handleMenuMouseEnter}
           onMenuMouseLeave={handleMenuMouseLeave}
         />
@@ -314,11 +299,9 @@ function LanguageSelectorMenu({
   filteredLanguages,
   selectedLanguage,
   currentSourceLanguage,
-  isAuthenticated,
   languageSearch,
   onLanguageSearchChange,
   onLanguageSelect,
-  onRequestSignIn,
   onMenuMouseEnter,
   onMenuMouseLeave,
 }: LanguageSelectorMenuProps) {
@@ -358,24 +341,6 @@ function LanguageSelectorMenu({
       onMouseEnter={onMenuMouseEnter}
       onMouseLeave={onMenuMouseLeave}
     >
-      {!isAuthenticated && (
-        <div className="px-3 py-2 border-b">
-          <div className="text-xs font-medium">Sign in to translate</div>
-          <div className="mt-1 text-[11px] text-muted-foreground">
-            Translate transcript and topics into 4 languages.
-          </div>
-          <Button
-            size="sm"
-            className="mt-2 h-7 text-xs w-full"
-            onClick={(e) => {
-              e.preventDefault();
-              onRequestSignIn?.();
-            }}
-          >
-            Sign in
-          </Button>
-        </div>
-      )}
       <div className="px-2 py-1.5">
         <div className="relative">
           <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
@@ -396,7 +361,7 @@ function LanguageSelectorMenu({
             ? lang.code === selectedLanguage
             : lang.code === (currentSourceLanguage || 'en');
 
-          const isDisabled = !isAuthenticated && !lang.isNative && lang.code !== 'en';
+          const isDisabled = false;
 
           return (
             <div
@@ -405,12 +370,7 @@ function LanguageSelectorMenu({
                 "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-xs outline-none transition-colors hover:bg-accent hover:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
                 isDisabled && "opacity-50"
               )}
-              onClick={(e) => {
-                if (isDisabled) {
-                  e.preventDefault();
-                  onRequestSignIn?.();
-                  return;
-                }
+              onClick={() => {
                 // If clicking current language, deselect if it's a translation, do nothing if it's source
                 if (isActive) {
                   if (selectedLanguage) {

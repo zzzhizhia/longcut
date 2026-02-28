@@ -41,8 +41,6 @@ interface RightColumnTabsProps {
   editingNote?: EditingNote | null;
   onSaveEditingNote?: (payload: { noteText: string; selectedText: string; metadata?: NoteMetadata }) => void;
   onCancelEditing?: () => void;
-  isAuthenticated?: boolean;
-  onRequestSignIn?: () => void;
   selectedLanguage?: string | null;
   translationCache?: Map<string, string>;
   onRequestTranslation?: TranslationRequestHandler;
@@ -84,8 +82,6 @@ export const RightColumnTabs = forwardRef<RightColumnTabsHandle, RightColumnTabs
   editingNote,
   onSaveEditingNote,
   onCancelEditing,
-  isAuthenticated,
-  onRequestSignIn,
   selectedLanguage = null,
   translationCache,
   onRequestTranslation,
@@ -131,10 +127,9 @@ export const RightColumnTabs = forwardRef<RightColumnTabsHandle, RightColumnTabs
               selectedLanguage={selectedLanguage}
               availableLanguages={availableLanguages}
               currentSourceLanguage={currentSourceLanguage}
-              isAuthenticated={isAuthenticated}
+
               onTabSwitch={setActiveTab}
               onLanguageChange={onLanguageChange}
-              onRequestSignIn={onRequestSignIn}
             />
           ) : (
             <div className={cn(
@@ -226,8 +221,6 @@ export const RightColumnTabs = forwardRef<RightColumnTabsHandle, RightColumnTabs
             selectedLanguage={selectedLanguage}
             translationCache={translationCache}
             onRequestTranslation={onRequestTranslation}
-            isAuthenticated={isAuthenticated}
-            onRequestSignIn={onRequestSignIn}
           />
         </div>
         <div className={cn("absolute inset-0", activeTab !== "notes" && "hidden")}
@@ -238,8 +231,7 @@ export const RightColumnTabs = forwardRef<RightColumnTabsHandle, RightColumnTabs
               editingNote={editingNote}
               onSaveEditingNote={onSaveEditingNote}
               onCancelEditing={onCancelEditing}
-              isAuthenticated={isAuthenticated}
-              onSignInClick={onRequestSignIn}
+
               currentTime={currentTime}
               onTimestampClick={onTimestampClick}
               onAddNote={onAddNote}

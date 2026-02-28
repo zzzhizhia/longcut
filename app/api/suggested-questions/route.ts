@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { TranscriptSegment, Topic } from '@/lib/types';
-import { withSecurity } from '@/lib/security-middleware';
-import { RATE_LIMITS } from '@/lib/rate-limiter';
+
 import { generateAIResponse } from '@/lib/ai-client';
 import { suggestedQuestionsSchema } from '@/lib/schemas';
 import { buildSuggestedQuestionFallbacks } from '@/lib/suggested-question-fallback';
@@ -179,9 +178,4 @@ ${fullTranscript}
   }
 }
 
-// Apply security with dedicated rate limit for suggested questions
-export const POST = withSecurity(handler, {
-  rateLimit: RATE_LIMITS.SUGGESTED_QUESTIONS, // Lightweight, chat-like operation
-  maxBodySize: 10 * 1024 * 1024, // 10MB for large transcripts
-  allowedMethods: ['POST']
-});
+export const POST = handler;

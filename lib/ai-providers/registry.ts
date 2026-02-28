@@ -1,19 +1,22 @@
+import { createClaudeAdapter } from './claude-adapter';
 import { createGeminiAdapter } from './gemini-adapter';
 import { createGrokAdapter } from './grok-adapter';
 import type { ProviderAdapter, ProviderGenerateParams, ProviderGenerateResult } from './types';
 
-type ProviderKey = 'grok' | 'gemini';
+type ProviderKey = 'grok' | 'gemini' | 'claude';
 
 type ProviderFactory = () => ProviderAdapter;
 
 const providerFactories: Record<ProviderKey, ProviderFactory> = {
   grok: createGrokAdapter,
   gemini: createGeminiAdapter,
+  claude: createClaudeAdapter,
 };
 
 const providerEnvGuards: Record<ProviderKey, () => string | undefined> = {
   grok: () => process.env.XAI_API_KEY,
   gemini: () => process.env.GEMINI_API_KEY,
+  claude: () => process.env.ANTHROPIC_API_KEY || 'local-claude-code',
 };
 
 const providerCache: Partial<Record<ProviderKey, ProviderAdapter>> = {};
@@ -33,6 +36,9 @@ function resolveProviderKey(preferred?: string): ProviderKey {
   }
   if (providerEnvGuards.gemini()) {
     return 'gemini';
+  }
+  if (providerEnvGuards.claude()) {
+    return 'claude';
   }
 
   return 'grok';

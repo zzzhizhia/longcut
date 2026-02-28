@@ -4,7 +4,7 @@ import {
   formatValidationError
 } from '@/lib/validation';
 import { z } from 'zod';
-import { withSecurity } from '@/lib/security-middleware';
+
 import { generateTopicsFromTranscript } from '@/lib/ai-processing';
 
 async function handler(request: NextRequest) {
@@ -65,9 +65,4 @@ async function handler(request: NextRequest) {
   }
 }
 
-// Apply security with generation rate limits (dynamic based on auth)
-export const POST = withSecurity(handler, {
-  maxBodySize: 10 * 1024 * 1024, // 10MB for large transcripts
-  allowedMethods: ['POST']
-  // Note: Rate limiting is handled internally by the route for dynamic limits based on auth
-});
+export const POST = handler;

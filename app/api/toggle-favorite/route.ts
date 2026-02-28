@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
 import { toggleFavoriteRequestSchema, formatValidationError } from '@/lib/validation';
 import { z } from 'zod';
-import { withSecurity } from '@/lib/security-middleware';
-import { RATE_LIMITS } from '@/lib/rate-limiter';
+import { toggleFavorite } from '@/lib/db-queries';
 
 async function handler(req: NextRequest) {
   try {
-    // Parse and validate request body
     const body = await req.json();
 
     let validatedData;
@@ -16,10 +13,7 @@ async function handler(req: NextRequest) {
     } catch (error) {
       if (error instanceof z.ZodError) {
         return NextResponse.json(
-          {
-            error: 'Validation failed',
-            details: formatValidationError(error)
-          },
+          { error: 'Validation failed', details: formatValidationError(error) },
           { status: 400 }
         );
       }
@@ -27,64 +21,18 @@ async function handler(req: NextRequest) {
     }
 
     const { videoId, isFavorite } = validatedData;
+    const result = toggleFavorite(videoId, isFavorite);
 
-    const supabase = await createClient();
-
-    // Get current user
-    // Authentication is handled by the security middleware
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
-      // This shouldn't happen as middleware checks authentication
-      return NextResponse.json(
-        { error: 'Authentication required' },
-        { status: 401 }
-      );
-    }
-
-    // First, get the video from video_analyses table using the YouTube ID
-    const { data: video, error: videoError } = await supabase
-      .from('video_analyses')
-      .select('id')
-      .eq('youtube_id', videoId)
-      .single();
-
-    if (videoError || !video) {
-      return NextResponse.json(
-        { error: 'Video not found' },
-        { status: 404 }
-      );
-    }
-
-    // Use upsert to atomically update or insert the favorite status
-    // This prevents race conditions from concurrent requests
-    const { data, error } = await supabase
-      .from('user_videos')
-      .upsert({
-        user_id: user.id,
-        video_id: video.id,
-        is_favorite: isFavorite,
-        accessed_at: new Date().toISOString()
-      }, {
-        onConflict: 'user_id,video_id'
-      })
-      .select()
-      .single();
-
-    if (error) {
-      throw error;
+    if (!result.success) {
+      return NextResponse.json({ error: 'Video not found' }, { status: 404 });
     }
 
     return NextResponse.json({
       success: true,
-      isFavorite: data.is_favorite
+      isFavorite: result.isFavorite
     });
-
   } catch (error) {
-    // Log error details server-side only
     console.error('Error toggling favorite:', error);
-
-    // Return generic error message to client
     return NextResponse.json(
       { error: 'An error occurred while processing your request' },
       { status: 500 }
@@ -92,10 +40,4 @@ async function handler(req: NextRequest) {
   }
 }
 
-export const POST = withSecurity(handler, {
-  requireAuth: true,
-  rateLimit: RATE_LIMITS.AUTH_GENERATION,
-  maxBodySize: 1024 * 1024, // 1MB
-  allowedMethods: ['POST']
-  // CSRF protection not needed as authentication is already required
-});
+export const POST = handler;

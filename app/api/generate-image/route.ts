@@ -1,14 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { transcriptSchema } from '@/lib/validation';
-import { createClient } from '@/lib/supabase/server';
-import { withSecurity, SECURITY_PRESETS } from '@/lib/security-middleware';
-import { hasUnlimitedVideoAllowance } from '@/lib/access-control';
-import {
-  canGenerateImage,
-  consumeImageCreditAtomic,
-  IMAGE_TIER_LIMITS,
-} from '@/lib/image-generation-manager';
 import { TranscriptSegment } from '@/lib/types';
 
 const requestSchema = z.object({
@@ -59,9 +51,6 @@ const IMAGE_STYLE_PROMPTS: Record<ImageStyle, { label: string; prompt: string }>
 
 const DEFAULT_IMAGE_MODEL =
   process.env.GEMINI_IMAGE_MODEL?.trim() || 'gemini-3-pro-image-preview';
-
-const FREE_IMAGE_LIMIT = IMAGE_TIER_LIMITS.free;
-const PRO_IMAGE_LIMIT = IMAGE_TIER_LIMITS.pro;
 
 function transcriptToPlainText(transcript: TranscriptSegment[]): string {
   return transcript
@@ -179,64 +168,18 @@ async function handler(req: NextRequest) {
     }
 
     const {
-      videoId,
       transcript,
       videoTitle,
       videoAuthor,
       aspectRatio,
       style,
     } = parsed.data;
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
 
-    if (!user) {
-      return NextResponse.json(
-        {
-          error: 'Sign in to generate images',
-          message:
-            `Create a free account to get ${FREE_IMAGE_LIMIT} image generation${FREE_IMAGE_LIMIT === 1 ? '' : 's'} per month, or upgrade to Pro for ${PRO_IMAGE_LIMIT} per month.`,
-          requiresAuth: true,
-        },
-        { status: 401 }
-      );
-    }
-
-    const unlimited = hasUnlimitedVideoAllowance(user);
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return NextResponse.json(
         { error: 'Gemini API key missing. Set GEMINI_API_KEY.' },
         { status: 500 }
-      );
-    }
-
-    // Enforce quota for non-whitelisted users
-    const generationDecision = unlimited
-      ? { allowed: true, reason: 'OK', stats: null, subscription: null }
-      : await canGenerateImage(user.id, { client: supabase });
-
-    if (!generationDecision.allowed) {
-      const tier = generationDecision.subscription?.tier ?? 'free';
-      const stats = generationDecision.stats;
-      const resetAt =
-        stats?.resetAt ??
-        new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-
-      return NextResponse.json(
-        {
-          error: 'Monthly image limit reached',
-          message:
-            tier === 'free'
-              ? `You've used your ${FREE_IMAGE_LIMIT} free image generation${FREE_IMAGE_LIMIT === 1 ? '' : 's'} this month. Upgrade to Pro for ${PRO_IMAGE_LIMIT} per month.`
-              : 'You have used your Pro allowance. Please wait for your next billing cycle to reset.',
-          tier,
-          remaining: stats?.baseRemaining ?? 0,
-          resetAt,
-          reason: generationDecision.reason,
-        },
-        { status: 429 }
       );
     }
 
@@ -256,38 +199,12 @@ async function handler(req: NextRequest) {
       aspectRatio
     );
 
-    // Consume credit after successful generation (unless unlimited)
-    if (!unlimited && generationDecision.subscription && generationDecision.stats) {
-      const consumeResult = await consumeImageCreditAtomic({
-        userId: user.id,
-        youtubeId: videoId,
-        subscription: generationDecision.subscription,
-        statsSnapshot: generationDecision.stats,
-        videoAnalysisId: null,
-        counted: true,
-        client: supabase,
-      });
-
-      if (!consumeResult.success) {
-        console.warn('Failed to record image generation:', consumeResult.error);
-      }
-    }
-
-    const remaining =
-      unlimited || !generationDecision.stats
-        ? null
-        : Math.max(0, generationDecision.stats.baseRemaining - 1);
-
     return NextResponse.json({
       imageUrl,
       modelUsed,
       aspectRatio,
       imageSize: DEFAULT_IMAGE_SIZE,
       style,
-      remaining,
-      limit: generationDecision.stats
-        ? generationDecision.stats.baseLimit
-        : IMAGE_TIER_LIMITS.free,
     });
   } catch (error) {
     console.error('Error generating image:', error);
@@ -301,7 +218,4 @@ async function handler(req: NextRequest) {
   }
 }
 
-export const POST = withSecurity(handler, {
-  ...SECURITY_PRESETS.PUBLIC,
-  maxBodySize: 3 * 1024 * 1024, // transcripts can be large
-});
+export const POST = handler;

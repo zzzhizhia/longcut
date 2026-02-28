@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { TranscriptSegment, VideoInfo } from '@/lib/types';
-import { withSecurity } from '@/lib/security-middleware';
-import { RATE_LIMITS } from '@/lib/rate-limiter';
+
 import { generateAIResponse } from '@/lib/ai-client';
 import { topQuotesSchema } from '@/lib/schemas';
 import { formatTranscriptWithTimestamps, formatVideoInfoBlock } from '@/lib/prompts/takeaways';
@@ -91,8 +90,4 @@ async function handler(request: NextRequest) {
   }
 }
 
-export const POST = withSecurity(handler, {
-  rateLimit: RATE_LIMITS.AUTH_GENERATION,
-  maxBodySize: 10 * 1024 * 1024,
-  allowedMethods: ['POST']
-});
+export const POST = handler;

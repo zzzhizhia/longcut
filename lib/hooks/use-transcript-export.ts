@@ -1,8 +1,6 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { createTranscriptExport, type TranscriptExportFormat, type TranscriptExportMode } from '@/lib/transcript-export';
-import { isProSubscriptionActive, type SubscriptionStatusResponse } from './use-subscription';
 import type { TranscriptSegment, Topic, VideoInfo, TranslationRequestHandler } from '@/lib/types';
 import type { BulkTranslationHandler } from './use-translation';
 
@@ -13,9 +11,9 @@ interface UseTranscriptExportOptions {
   videoInfo: VideoInfo | null;
   user: any;
   hasSpeakerData: boolean;
-  subscriptionStatus: SubscriptionStatusResponse | null;
+  subscriptionStatus: any;
   isCheckingSubscription: boolean;
-  fetchSubscriptionStatus: (options?: { force?: boolean }) => Promise<SubscriptionStatusResponse | null>;
+  fetchSubscriptionStatus: (options?: { force?: boolean }) => Promise<any>;
   onAuthRequired: () => void;
   onRequestTranslation: TranslationRequestHandler;
   onBulkTranslation: BulkTranslationHandler;
@@ -27,21 +25,14 @@ export function useTranscriptExport({
   transcript,
   topics,
   videoInfo,
-  user,
   hasSpeakerData,
-  subscriptionStatus,
-  isCheckingSubscription,
-  fetchSubscriptionStatus,
-  onAuthRequired,
   onBulkTranslation,
   translationCache,
 }: UseTranscriptExportOptions) {
-  const router = useRouter();
-
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const [exportFormat, setExportFormat] = useState<TranscriptExportFormat>('txt');
   const [exportMode, setExportMode] = useState<TranscriptExportMode>('original');
-  const [targetLanguage, setTargetLanguage] = useState<string>('es'); // Default to Spanish
+  const [targetLanguage, setTargetLanguage] = useState<string>('es');
   const [includeTimestamps, setIncludeTimestamps] = useState(true);
   const [includeSpeakers, setIncludeSpeakers] = useState(false);
   const [exportErrorMessage, setExportErrorMessage] = useState<string | null>(null);
@@ -70,7 +61,6 @@ export function useTranscriptExport({
     if (!open) {
       setExportErrorMessage(null);
       setExportDisableMessage(null);
-      // Reset non-essential state
       setExportMode('original');
     }
   }, []);
@@ -81,71 +71,14 @@ export function useTranscriptExport({
       return;
     }
 
-    if (!user) {
-      onAuthRequired();
-      return;
-    }
-
-    const status = await fetchSubscriptionStatus();
-    if (!status) {
-      return;
-    }
-
-    if (status.tier !== 'pro') {
-      setShowExportUpsell(true);
-      return;
-    }
-
-    if (!isProSubscriptionActive(status)) {
-      setExportDisableMessage('Your subscription is not active. Visit billing to reactivate and continue exporting transcripts.');
-      setExportErrorMessage(null);
-      setIsExportDialogOpen(true);
-      return;
-    }
-
-    if (status.usage.totalRemaining <= 0) {
-      setExportDisableMessage("You've hit your export limit. Purchase a top-up or wait for your cycle reset.");
-      setExportErrorMessage(null);
-      setIsExportDialogOpen(true);
-      return;
-    }
-
     setExportDisableMessage(null);
     setExportErrorMessage(null);
     setIsExportDialogOpen(true);
-  }, [
-    videoId,
-    transcript.length,
-    user,
-    onAuthRequired,
-    fetchSubscriptionStatus,
-  ]);
+  }, [videoId, transcript.length]);
 
   const handleConfirmExport = useCallback(async () => {
     if (transcript.length === 0) {
       setExportErrorMessage('Transcript is still loading. Please try again.');
-      return;
-    }
-
-    const status = await fetchSubscriptionStatus();
-    if (!status) {
-      setExportErrorMessage('Unable to verify your subscription. Please try again.');
-      return;
-    }
-
-    if (status.tier !== 'pro') {
-      setShowExportUpsell(true);
-      setIsExportDialogOpen(false);
-      return;
-    }
-
-    if (!isProSubscriptionActive(status)) {
-      setExportDisableMessage('Your subscription is not active. Visit billing to reactivate and continue exporting transcripts.');
-      return;
-    }
-
-    if (status.usage.totalRemaining <= 0) {
-      setExportDisableMessage("You've hit your export limit. Purchase a top-up or wait for your cycle reset.");
       return;
     }
 
@@ -155,23 +88,19 @@ export function useTranscriptExport({
     try {
       let translatedTranscript: string[] = [];
 
-      // Handle translation if required
       if (exportMode !== 'original') {
         const translations: string[] = new Array(transcript.length).fill('');
-
-        // 1. Identify missing translations
         const segmentsToTranslate: { index: number; text: string }[] = [];
 
         transcript.forEach((segment, index) => {
-           const cacheKey = `transcript:${index}:${targetLanguage}`;
-           if (translationCache.has(cacheKey)) {
-             translations[index] = translationCache.get(cacheKey)!;
-           } else {
-             segmentsToTranslate.push({ index, text: segment.text });
-           }
+          const cacheKey = `transcript:${index}:${targetLanguage}`;
+          if (translationCache.has(cacheKey)) {
+            translations[index] = translationCache.get(cacheKey)!;
+          } else {
+            segmentsToTranslate.push({ index, text: segment.text });
+          }
         });
 
-        // 2. Request missing translations using bulk API for faster processing
         if (segmentsToTranslate.length > 0) {
           const translationMap = await onBulkTranslation(
             segmentsToTranslate,
@@ -181,7 +110,6 @@ export function useTranscriptExport({
             (completed, total) => setTranslationProgress({ completed, total })
           );
 
-          // Apply results from bulk translation
           for (const [index, translation] of translationMap) {
             translations[index] = translation;
           }
@@ -215,7 +143,6 @@ export function useTranscriptExport({
       toast.success('Transcript export started');
       setIsExportDialogOpen(false);
       setExportDisableMessage(null);
-      await fetchSubscriptionStatus({ force: true });
     } catch (error) {
       console.error('Transcript export failed:', error);
       const message =
@@ -227,7 +154,6 @@ export function useTranscriptExport({
     }
   }, [
     transcript,
-    fetchSubscriptionStatus,
     exportFormat,
     exportMode,
     targetLanguage,
@@ -241,8 +167,8 @@ export function useTranscriptExport({
   ]);
 
   const handleUpgradeClick = useCallback(() => {
-    router.push('/pricing');
-  }, [router]);
+    // No-op in local mode
+  }, []);
 
   const exportButtonState = useMemo(() => {
     if (!videoId || transcript.length === 0) {
@@ -256,57 +182,14 @@ export function useTranscriptExport({
       return {
         disabled: true,
         isLoading: true,
-        tooltip: 'Preparing export…',
-      };
-    }
-
-    if (isCheckingSubscription) {
-      return {
-        disabled: true,
-        isLoading: true,
-        tooltip: 'Checking export availability…',
-      };
-    }
-
-    if (!user) {
-      return {
-        badgeLabel: 'Pro',
-        tooltip: 'Sign in to export transcripts',
-      };
-    }
-
-    if (subscriptionStatus && subscriptionStatus.tier !== 'pro') {
-      return {
-        badgeLabel: 'Pro',
-        tooltip: 'Upgrade to Pro to export transcripts',
-      };
-    }
-
-    if (subscriptionStatus && !isProSubscriptionActive(subscriptionStatus)) {
-      return {
-        badgeLabel: 'Pro',
-        tooltip: 'Reactivate your subscription to export transcripts',
-      };
-    }
-
-    if (subscriptionStatus && subscriptionStatus.usage.totalRemaining <= 0) {
-      return {
-        badgeLabel: 'Pro',
-        tooltip: "You've hit your export limit. Purchase a top-up or wait for reset.",
+        tooltip: 'Preparing export...',
       };
     }
 
     return {
       tooltip: 'Export transcript',
     };
-  }, [
-    videoId,
-    transcript.length,
-    isExportingTranscript,
-    isCheckingSubscription,
-    user,
-    subscriptionStatus,
-  ]);
+  }, [videoId, transcript.length, isExportingTranscript]);
 
   return {
     isExportDialogOpen,

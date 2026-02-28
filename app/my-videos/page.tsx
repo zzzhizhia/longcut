@@ -1,30 +1,9 @@
 import Link from 'next/link';
-import { redirect } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
 import { VideoGrid } from './video-grid';
+import { getAllUserVideos } from '@/lib/db-queries';
 
 export default async function MyVideosPage() {
-  const supabase = await createClient();
-
-  const { data: { user } } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect('/');
-  }
-
-  // Fetch user's video history with video details
-  const { data: userVideos, error } = await supabase
-    .from('user_videos')
-    .select(`
-      *,
-      video:video_analyses(*)
-    `)
-    .eq('user_id', user.id)
-    .order('accessed_at', { ascending: false });
-
-  if (error) {
-    console.error('Error fetching user videos:', error);
-  }
+  const userVideos = getAllUserVideos();
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-7xl">

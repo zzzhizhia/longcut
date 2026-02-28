@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { withSecurity } from '@/lib/security-middleware';
-import { RATE_LIMITS, RateLimiter, rateLimitResponse } from '@/lib/rate-limiter';
 import { getTranslationClient } from '@/lib/translation';
-import { createClient } from '@/lib/supabase/server';
 import { z } from 'zod';
 import type { TranslationContext } from '@/lib/translation/types';
 
@@ -13,13 +10,14 @@ const translationContextSchema = z.object({
   preserveFormatting: z.boolean().optional(),
 }).optional() satisfies z.ZodType<TranslationContext | undefined>;
 
+const MAX_TEXT_LENGTH = 10000; // max chars per text segment
+const MAX_TOTAL_CHARS = 500000; // max total chars across all texts
+
 const translateBatchRequestSchema = z.object({
-  texts: z.array(z.string()),
+  texts: z.array(z.string().max(MAX_TEXT_LENGTH, `Each text must be under ${MAX_TEXT_LENGTH} characters`)),
   targetLanguage: z.string().default('zh-CN'),
   context: translationContextSchema
 });
-
-// Note: Translation requires authentication, but is available to both Free and Pro users.
 
 async function handler(request: NextRequest) {
   let requestBody: unknown;
@@ -27,37 +25,6 @@ async function handler(request: NextRequest) {
   try {
     requestBody = await request.json();
     const body = requestBody;
-
-    // Auth check first (cheap), then optional rate limiting
-    const supabase = await createClient();
-    const {
-      data: { user }
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json(
-        { error: 'Authentication required' },
-        { status: 401 }
-      );
-    }
-
-    // Optional rate limiting (disabled by default for speed)
-    const enableRateLimit = process.env.TRANSLATION_RATE_LIMIT_ENABLED === 'true';
-    let rateLimitHeaders: Record<string, string> | undefined;
-    if (enableRateLimit) {
-      const rateLimitConfig = RATE_LIMITS.AUTH_TRANSLATION;
-      const rateLimitResult = await RateLimiter.check('translation', rateLimitConfig);
-      if (!rateLimitResult.allowed) {
-        return (
-          rateLimitResponse(rateLimitResult) ||
-          NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 })
-        );
-      }
-      rateLimitHeaders = {
-        'X-RateLimit-Remaining': rateLimitResult.remaining.toString(),
-        'X-RateLimit-Reset': rateLimitResult.resetAt.toISOString()
-      };
-    }
 
     const validation = translateBatchRequestSchema.safeParse(body);
     if (!validation.success) {
@@ -76,11 +43,18 @@ async function handler(request: NextRequest) {
       return NextResponse.json({ translations: [] });
     }
 
-    // Allow large batches; server will internally chunk and parallelize
     const MAX_REQUEST_TEXTS = 10000;
     if (texts.length > MAX_REQUEST_TEXTS) {
       return NextResponse.json(
         { error: `Batch size too large. Maximum ${MAX_REQUEST_TEXTS} texts allowed.` },
+        { status: 400 }
+      );
+    }
+
+    const totalChars = texts.reduce((sum, t) => sum + t.length, 0);
+    if (totalChars > MAX_TOTAL_CHARS) {
+      return NextResponse.json(
+        { error: `Total text size too large. Maximum ${MAX_TOTAL_CHARS} characters allowed.` },
         { status: 400 }
       );
     }
@@ -124,11 +98,7 @@ async function handler(request: NextRequest) {
     const workers = Array.from({ length: Math.min(CONCURRENCY, chunks.length) }, () => worker());
     await Promise.all(workers);
 
-    // Include rate limit headers if applicable
-    return NextResponse.json(
-      { translations: results },
-      { headers: rateLimitHeaders ?? {} }
-    );
+    return NextResponse.json({ translations: results });
   } catch (error) {
     // Log full error details server-side for debugging
     console.error('[TRANSLATE] Translation error:', {
@@ -158,9 +128,4 @@ async function handler(request: NextRequest) {
   }
 }
 
-// Apply security middleware
-// Note: Rate limiting is handled inside the handler to support different limits for anon/auth users
-export const POST = withSecurity(handler, {
-  maxBodySize: 3 * 1024 * 1024, // 3MB to allow larger batches
-  allowedMethods: ['POST']
-});
+export const POST = handler;

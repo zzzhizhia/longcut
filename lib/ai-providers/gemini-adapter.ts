@@ -204,6 +204,8 @@ export function createGeminiAdapter(): ProviderAdapter {
   }
 
   const genAI = new GoogleGenerativeAI(apiKey);
+  const baseUrl = process.env.GEMINI_BASE_URL;
+  const requestOptions = baseUrl ? { baseUrl } : undefined;
 
   return {
     name: PROVIDER_NAME,
@@ -219,7 +221,7 @@ export function createGeminiAdapter(): ProviderAdapter {
           const model = genAI.getGenerativeModel({
             model: modelName,
             generationConfig,
-          });
+          }, requestOptions);
 
           const requestStart = Date.now();
           const generatePromise = model.generateContent(params.prompt);

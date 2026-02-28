@@ -18,72 +18,23 @@ import { fetchNotes, saveNote } from "@/lib/notes-client";
 import { EditingNote } from "@/components/notes-panel";
 import { useModePreference } from "@/lib/hooks/use-mode-preference";
 import { useTranslation } from "@/lib/hooks/use-translation";
-import { useSubscription } from "@/lib/hooks/use-subscription";
 import { useTranscriptExport } from "@/lib/hooks/use-transcript-export";
 
 // Page state for better UX
 type PageState = 'IDLE' | 'ANALYZING_NEW' | 'LOADING_CACHED';
-type AuthModalTrigger = 'generation-limit' | 'save-video' | 'manual' | 'save-note';
 import { buildVideoSlug, extractVideoId } from "@/lib/utils";
 import { getLanguageName } from "@/lib/language-utils";
-import { NO_CREDITS_USED_MESSAGE } from "@/lib/no-credits-message";
 import { useElapsedTimer } from "@/lib/hooks/use-elapsed-timer";
 import { Loader2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
-import { AuthModal } from "@/components/auth-modal";
 import { TranscriptExportDialog } from "@/components/transcript-export-dialog";
 import { TranscriptExportUpsell } from "@/components/transcript-export-upsell";
-import { useAuth } from "@/contexts/auth-context";
 import { backgroundOperation, AbortManager } from "@/lib/promise-utils";
-import { csrfFetch } from "@/lib/csrf-client";
 import { toast } from "sonner";
 import { hasSpeakerMetadata } from "@/lib/transcript-export";
 import { buildSuggestedQuestionFallbacks } from "@/lib/suggested-question-fallback";
 
-const GUEST_LIMIT_MESSAGE = "You've used your free preview. Create a free account for 3 videos/month.";
-const AUTH_LIMIT_MESSAGE = "You've used all 3 free videos this month. Upgrade to Pro for 100 videos/month.";
 const DEFAULT_CLIENT_ERROR = "Something went wrong. Please try again.";
-
-type LimitCheckResponse = {
-  canGenerate: boolean;
-  isAuthenticated: boolean;
-  tier?: 'free' | 'pro' | 'anonymous';
-  reason?: string | null;
-  requiresTopup?: boolean;
-  requiresAuth?: boolean;
-  status?: string | null;
-  warning?: string | null;
-  unlimited?: boolean;
-  willConsumeTopup?: boolean;
-  resetAt?: string | null;
-  usage?: {
-    totalRemaining?: number | null;
-    counted?: number | null;
-    cached?: number | null;
-    baseLimit?: number | null;
-    baseRemaining?: number | null;
-    topupRemaining?: number | null;
-  } | null;
-};
-
-
-function buildLimitExceededMessage(limitData?: LimitCheckResponse | null): string {
-  if (!limitData) {
-    return AUTH_LIMIT_MESSAGE;
-  }
-
-  if (limitData.reason === 'SUBSCRIPTION_INACTIVE') {
-    return 'Your subscription is not active. Visit the billing portal to reactivate and continue generating videos.';
-  }
-
-  if (limitData.tier === 'pro') {
-    return limitData.requiresTopup
-      ? 'You have used all Pro videos this period. Purchase a Top-Up (+20 videos for $2.99) or wait for your next billing cycle.'
-      : 'You have used your Pro allowance. Wait for your next billing cycle to reset.';
-  }
-
-  return AUTH_LIMIT_MESSAGE;
-}
 
 function normalizeErrorMessage(message: string | undefined, fallback: string = DEFAULT_CLIENT_ERROR): string {
   const trimmed = typeof message === "string" ? message.trim() : "";
@@ -123,9 +74,7 @@ function buildApiErrorMessage(errorData: unknown, fallback: string): string {
   const creditsMessage =
     typeof record.creditsMessage === "string" && record.creditsMessage.trim().length > 0
       ? record.creditsMessage.trim()
-      : record.noCreditsUsed
-        ? NO_CREDITS_USED_MESSAGE
-        : "";
+      : "";
 
   if (!creditsMessage) {
     return baseMessage;
@@ -188,14 +137,12 @@ export default function AnalyzePage() {
   const isCachedQuery = cachedParamValue === 'true' || cachedParamValue === '1';
   const regenParam = searchParams?.get('regen');
   const forceRegenerate = (regenParam?.toLowerCase() === '1' || regenParam?.toLowerCase() === 'true');
-  const authErrorParam = searchParams?.get('auth_error');
   const slugParam = searchParams?.get('slug') ?? null;
   const [pageState, setPageState] = useState<PageState>(() =>
     (routeVideoId || urlParam)
       ? (isCachedQuery ? 'LOADING_CACHED' : 'ANALYZING_NEW')
       : 'IDLE'
   );
-  const hasAttemptedLinking = useRef(false);
   const [loadingStage, setLoadingStage] = useState<'fetching' | 'understanding' | 'generating' | 'processing' | null>(null);
   const { mode, isLoading: isModeLoading } = useModePreference();
   const [error, setError] = useState("");
@@ -324,50 +271,6 @@ export default function AnalyzePage() {
   const elapsedTime = useElapsedTimer(generationStartTime);
   const processingElapsedTime = useElapsedTimer(processingStartTime);
 
-  // Auth and generation limit state
-  const { user } = useAuth();
-  const [authModalOpen, setAuthModalOpen] = useState(false);
-  const [authModalTrigger, setAuthModalTrigger] = useState<AuthModalTrigger>('generation-limit');
-
-  // Store current video data in sessionStorage before auth
-  const storeCurrentVideoForAuth = useCallback((id?: string) => {
-    const targetVideoId = id ?? videoId;
-    if (targetVideoId && !user) {
-      try {
-        sessionStorage.setItem('pendingVideoId', targetVideoId);
-      } catch (error) {
-        console.error('Failed to persist pending video ID:', error);
-      }
-    }
-  }, [user, videoId]);
-
-  const handleAuthRequired = useCallback(() => {
-    storeCurrentVideoForAuth();
-    setAuthModalTrigger('manual');
-    setAuthModalOpen(true);
-  }, [storeCurrentVideoForAuth]);
-
-  // Use custom hook for subscription
-  const {
-    subscriptionStatus,
-    isCheckingSubscription,
-    fetchSubscriptionStatus,
-  } = useSubscription({
-    user,
-    onAuthRequired: handleAuthRequired,
-  });
-
-  // Ensure we fetch subscription status early so Pro users aren't blocked
-  useEffect(() => {
-    if (user && !subscriptionStatus && !isCheckingSubscription) {
-      fetchSubscriptionStatus().catch((err) => {
-        console.error('Failed to prefetch subscription status:', err);
-      });
-    }
-  }, [user, subscriptionStatus, isCheckingSubscription, fetchSubscriptionStatus]);
-
-  // Translation is available to all authenticated users (Free + Pro)
-
   const hasSpeakerData = useMemo(() => hasSpeakerMetadata(transcript), [transcript]);
 
   // Use custom hook for transcript export
@@ -399,23 +302,16 @@ export default function AnalyzePage() {
     transcript,
     topics,
     videoInfo,
-    user,
+    user: null,
     hasSpeakerData,
-    subscriptionStatus,
-    isCheckingSubscription,
-    fetchSubscriptionStatus,
-    onAuthRequired: handleAuthRequired,
+    subscriptionStatus: null,
+    isCheckingSubscription: false,
+    fetchSubscriptionStatus: async () => null,
+    onAuthRequired: () => {},
     onRequestTranslation: translateWithContext,
     onBulkTranslation: handleBulkTranslation,
     translationCache: translationCache,
   });
-
-  const [rateLimitInfo, setRateLimitInfo] = useState<{
-    remaining: number | null;
-    resetAt: Date | null;
-  }>({ remaining: -1, resetAt: null });
-  const [authLimitReached, setAuthLimitReached] = useState(false);
-  const hasRedirectedForLimit = useRef(false);
 
   // Centralized playback request functions
   const requestSeek = useCallback((time: number) => {
@@ -438,163 +334,7 @@ export default function AnalyzePage() {
     setPlaybackCommand(null);
   }, []);
 
-  const promptSignInForNotes = useCallback(() => {
-    if (user) return;
-    storeCurrentVideoForAuth();
-    setAuthModalTrigger('save-note');
-    setAuthModalOpen(true);
-  }, [storeCurrentVideoForAuth, user, setAuthModalTrigger]);
 
-  const redirectToAuthForLimit = useCallback(
-    (message?: string, pendingVideoId?: string) => {
-      if (hasRedirectedForLimit.current) {
-        return;
-      }
-
-      hasRedirectedForLimit.current = true;
-
-      const trimmedMessage = typeof message === "string" && message.trim().length > 0
-        ? message.trim()
-        : GUEST_LIMIT_MESSAGE;
-
-      const targetVideoId = pendingVideoId ?? videoId ?? routeVideoId ?? null;
-      if (targetVideoId) {
-        storeCurrentVideoForAuth(targetVideoId);
-      }
-
-      if (trimmedMessage) {
-        try {
-          sessionStorage.setItem('limitRedirectMessage', trimmedMessage);
-        } catch (error) {
-          console.error('Failed to persist limit redirect message:', error);
-        }
-      }
-
-      router.push('/?auth=limit');
-    },
-    [routeVideoId, router, storeCurrentVideoForAuth, videoId]
-  );
-
-  // Check for pending video linking after auth
-  const checkPendingVideoLink = useCallback(async (retryCount = 0) => {
-    // Check both sessionStorage and current videoId state
-    const pendingVideoId = sessionStorage.getItem('pendingVideoId');
-    const currentVideoId = videoId;
-    const videoToLink = pendingVideoId || currentVideoId;
-
-    console.log('Checking for video to link:', {
-      pendingVideoId,
-      currentVideoId,
-      user: user?.email,
-      retryCount
-    });
-
-    if (videoToLink && user) {
-      console.log('Found video to link:', videoToLink);
-
-      // First, check if the video exists in the database
-      try {
-        // Construct YouTube URL from videoId for the cache check
-        const checkUrl = `https://www.youtube.com/watch?v=${videoToLink}`;
-        const checkResponse = await fetch('/api/check-video-cache', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: checkUrl })
-        });
-
-        if (!checkResponse.ok || !(await checkResponse.json()).cached) {
-          // Video doesn't exist yet, don't try to link
-          console.log('Video not yet in database, skipping link');
-          return;
-        }
-      } catch (error) {
-        console.error('Error checking video cache:', error);
-        return;
-      }
-
-      try {
-        const response = await fetch('/api/link-video', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ videoId: videoToLink })
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          console.log('Link video response:', data);
-          // Only show toast for newly linked videos, not already linked ones
-          if (!data.alreadyLinked) {
-            toast.success('Video saved to your library!');
-          }
-          sessionStorage.removeItem('pendingVideoId');
-        } else if (response.status === 404 && retryCount < 3) {
-          // Retry with exponential backoff if video not found
-          console.log(`Video not found, retrying in ${1000 * (retryCount + 1)}ms...`);
-          setTimeout(() => {
-            checkPendingVideoLink(retryCount + 1);
-          }, 1000 * (retryCount + 1));
-        } else if (response.status === 503 && retryCount < 2) {
-          // User profile not ready yet, retry after a short delay
-          console.log(`Profile not ready, retrying in ${2000 * (retryCount + 1)}ms...`);
-          setTimeout(() => {
-            checkPendingVideoLink(retryCount + 1);
-          }, 2000 * (retryCount + 1));
-        } else {
-          const errorText = await response.text().catch(() => 'Unknown error');
-          console.error('Failed to link video:', response.status, errorText);
-          // Don't remove pendingVideoId on error, so it can be retried later
-        }
-      } catch (error) {
-        console.error('Error linking video:', error);
-      }
-    }
-  }, [videoId, user]);
-
-  const checkRateLimit = useCallback(async (): Promise<LimitCheckResponse | null> => {
-    try {
-      const response = await fetch('/api/check-limit');
-      const data: LimitCheckResponse = await response.json();
-
-      setAuthLimitReached(Boolean(data?.isAuthenticated && data?.canGenerate === false && data?.reason === 'LIMIT_REACHED'));
-
-      const usage = data?.usage;
-      const remainingValue =
-        typeof usage?.totalRemaining === 'number'
-          ? usage.totalRemaining
-          : usage?.totalRemaining === null
-            ? null
-            : -1;
-
-      const resetTimestamp = data?.resetAt ?? null;
-
-      setRateLimitInfo({
-        remaining: remainingValue,
-        resetAt: resetTimestamp ? new Date(resetTimestamp) : null,
-      });
-
-      return data;
-    } catch (error) {
-      console.error('Error checking rate limit:', error);
-      setAuthLimitReached(false);
-      return null;
-    }
-  }, []);
-
-  // Check rate limit status on mount
-  useEffect(() => {
-    checkRateLimit();
-  }, [checkRateLimit]);
-
-  // Handle pending video linking when user logs in and videoId is available
-  useEffect(() => {
-    if (user && !hasAttemptedLinking.current && (videoId || sessionStorage.getItem('pendingVideoId'))) {
-      hasAttemptedLinking.current = true;
-      // Delay the link attempt to ensure authentication is fully propagated
-      setTimeout(() => {
-        checkPendingVideoLink();
-      }, 1500);
-    }
-  }, [user, videoId, checkPendingVideoLink]);
 
   // Cleanup AbortManager on component unmount
   useEffect(() => {
@@ -608,74 +348,11 @@ export default function AnalyzePage() {
   const lastInitializedKey = useRef<string | null>(null);
   const normalizedUrl = urlParam ?? (routeVideoId ? `https://www.youtube.com/watch?v=${routeVideoId}` : "");
 
-  // Clear auth errors from URL after notifying the user
-  useEffect(() => {
-    if (!authErrorParam || !routeVideoId) return;
-
-    toast.error(`Authentication failed: ${decodeURIComponent(authErrorParam)}`);
-
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete('auth_error');
-
-    const queryString = params.toString();
-    router.replace(
-      `/analyze/${routeVideoId}${queryString ? `?${queryString}` : ''}`,
-      { scroll: false }
-    );
-  }, [authErrorParam, router, routeVideoId, searchParams]);
-
-  // Automatically kick off analysis when arriving via dedicated route
-  // Check if user can generate based on server-side rate limits
-  const checkGenerationLimit = useCallback((
-    pendingVideoId?: string,
-    remainingOverride?: number | null,
-    latestLimitData?: LimitCheckResponse | null
-  ): boolean => {
-    if (user) {
-      const limitReached =
-        latestLimitData?.isAuthenticated
-          ? latestLimitData.canGenerate === false
-          : authLimitReached;
-
-      if (limitReached) {
-        const limitMessage = buildLimitExceededMessage(latestLimitData);
-        setIsRateLimitError(true);
-        setError(limitMessage);
-        toast.error(limitMessage);
-        return false;
-      }
-      return true;
-    }
-
-    let effectiveRemaining =
-      typeof remainingOverride === 'number' || remainingOverride === null
-        ? remainingOverride
-        : rateLimitInfo.remaining;
-
-    if (!latestLimitData?.isAuthenticated) {
-      const totalRemaining = latestLimitData?.usage?.totalRemaining;
-      if (typeof totalRemaining === 'number' || totalRemaining === null) {
-        effectiveRemaining = totalRemaining;
-      }
-    }
-
-    if (
-      typeof effectiveRemaining === 'number' &&
-      effectiveRemaining !== -1 &&
-      effectiveRemaining <= 0
-    ) {
-      redirectToAuthForLimit(undefined, pendingVideoId);
-      return false;
-    }
-    return true;
-  }, [user, authLimitReached, rateLimitInfo.remaining, redirectToAuthForLimit]);
-
   const processVideo = useCallback(async (
     url: string,
     selectedMode: TopicGenerationMode,
     preferredLanguage?: string
   ) => {
-    const currentRemaining = rateLimitInfo.remaining;
     try {
       const extractedVideoId = extractVideoId(url);
       if (!extractedVideoId) {
@@ -720,9 +397,6 @@ export default function AnalyzePage() {
 
       // Reset cached suggested questions
       setCachedSuggestedQuestions(null);
-
-      // Store video ID immediately for potential post-auth linking
-      storeCurrentVideoForAuth(extractedVideoId);
 
       // Only set videoId if it's different to prevent unnecessary re-renders
       if (videoId !== extractedVideoId) {
@@ -803,9 +477,6 @@ export default function AnalyzePage() {
               if (cacheData.suggestedQuestions) {
                 setCachedSuggestedQuestions(cacheData.suggestedQuestions);
               }
-
-              // Store video ID for potential post-auth linking (for cached videos)
-              storeCurrentVideoForAuth(extractedVideoId);
 
               // Set page state back to idle
               setPageState('IDLE');
@@ -912,10 +583,10 @@ export default function AnalyzePage() {
                       await backgroundOperation(
                         'update-cached-takeaways',
                         async () => {
-                          const res = await csrfFetch.post("/api/update-video-analysis", {
+                          const res = await fetch("/api/update-video-analysis", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
                             videoId: extractedVideoId,
                             summary: generatedTakeaways
-                          });
+                          })});
                           // 401/403 is expected for anonymous users or non-owners
                           if (!res.ok && res.status !== 401 && res.status !== 403) {
                             throw new Error('Failed to update takeaways');
@@ -943,20 +614,6 @@ export default function AnalyzePage() {
             }
           }
         }
-      }
-
-      let effectiveRemaining = currentRemaining;
-      const latestLimitData = await checkRateLimit();
-
-      if (!user && latestLimitData) {
-        const totalRemaining = latestLimitData.usage?.totalRemaining;
-        if (typeof totalRemaining === 'number' || totalRemaining === null) {
-          effectiveRemaining = totalRemaining;
-        }
-      }
-
-      if (!checkGenerationLimit(extractedVideoId, effectiveRemaining, latestLimitData)) {
-        return;
       }
 
       setPageState('ANALYZING_NEW');
@@ -1184,25 +841,9 @@ export default function AnalyzePage() {
       const topicsRes = topicsResult.value;
       if (!topicsRes.ok) {
         const errorData = await topicsRes.json().catch(() => ({ error: "Unknown error" }));
-        const requiresAuth = Boolean((errorData as any)?.requiresAuth);
-        const authMessage =
-          typeof (errorData as any)?.message === "string"
-            ? (errorData as any).message
-            : undefined;
-
-        if (requiresAuth || topicsRes.status === 401 || topicsRes.status === 403) {
-          takeawaysController.abort();
-          await takeawaysSettledPromise;
-          redirectToAuthForLimit(
-            authMessage,
-            extractedVideoId
-          );
-          return;
-        }
 
         if (topicsRes.status === 429) {
           setIsRateLimitError(true);
-          checkRateLimit();
           takeawaysController.abort();
           await takeawaysSettledPromise;
 
@@ -1221,7 +862,7 @@ export default function AnalyzePage() {
               ? limitMessageRaw
               : limitErrorRaw.length > 0
                 ? limitErrorRaw
-                : AUTH_LIMIT_MESSAGE;
+                : "Rate limit exceeded. Please try again later.";
 
           throw new Error(limitMessage);
         }
@@ -1301,9 +942,6 @@ export default function AnalyzePage() {
         setShowChatTab(true);
         setIsGeneratingTakeaways(false);
       }
-
-      // Rate limit is handled server-side now
-      checkRateLimit();
 
       // Confirm the analysis has been persisted before switching to the shareable /v/ URL
       backgroundOperation(
@@ -1394,10 +1032,10 @@ export default function AnalyzePage() {
           await backgroundOperation(
             'update-questions',
             async () => {
-              const updateRes = await csrfFetch.post("/api/update-video-analysis", {
+              const updateRes = await fetch("/api/update-video-analysis", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
                 videoId: extractedVideoId,
                 suggestedQuestions: normalizedQuestions
-              });
+              })});
 
               // 401/403 is expected for anonymous users or non-owners
               if (!updateRes.ok && updateRes.status !== 404 && updateRes.status !== 401 && updateRes.status !== 403) {
@@ -1429,13 +1067,7 @@ export default function AnalyzePage() {
       setSwitchingToLanguage(null);
     }
   }, [
-    rateLimitInfo.remaining,
-    storeCurrentVideoForAuth,
     videoId,
-    checkRateLimit,
-    user,
-    checkGenerationLimit,
-    redirectToAuthForLimit,
     forceRegenerate
   ]);
 
@@ -1447,14 +1079,8 @@ export default function AnalyzePage() {
 
     lastInitializedKey.current = key;
 
-    // Store video ID for potential post-auth linking before loading
-    if (!user) {
-      sessionStorage.setItem('pendingVideoId', routeVideoId);
-      console.log('Stored route video ID for potential post-auth linking:', routeVideoId);
-    }
-
     processVideo(normalizedUrl, mode);
-  }, [routeVideoId, urlParam, cachedParam, user, normalizedUrl, isModeLoading, mode, processVideo]);
+  }, [routeVideoId, urlParam, cachedParam, normalizedUrl, isModeLoading, mode, processVideo]);
 
   const handleCitationClick = (citation: Citation) => {
     // Reset Play All mode when clicking a citation
@@ -1767,7 +1393,7 @@ export default function AnalyzePage() {
   const [editingNote, setEditingNote] = useState<EditingNote | null>(null);
 
   useEffect(() => {
-    if (!videoId || !user) {
+    if (!videoId) {
       setNotes([]);
       return;
     }
@@ -1779,7 +1405,7 @@ export default function AnalyzePage() {
         console.error("Failed to load notes", error);
       })
       .finally(() => setIsLoadingNotes(false));
-  }, [videoId, user]);
+  }, [videoId]);
 
   // Auto-switch to Chat tab when Explain is triggered from transcript
   useEffect(() => {
@@ -1796,10 +1422,6 @@ export default function AnalyzePage() {
 
   const handleSaveNote = useCallback(async ({ text, source, sourceId, metadata }: { text: string; source: NoteSource; sourceId?: string | null; metadata?: NoteMetadata | null }) => {
     if (!videoId) return;
-    if (!user) {
-      promptSignInForNotes();
-      return;
-    }
 
     try {
       const note = await saveNote({
@@ -1819,14 +1441,9 @@ export default function AnalyzePage() {
       console.error("Failed to save note", error);
       toast.error("Failed to save note");
     }
-  }, [videoId, videoDbId, user, promptSignInForNotes]);
+  }, [videoId, videoDbId]);
 
   const handleTakeNoteFromSelection = useCallback((payload: SelectionActionPayload) => {
-    if (!user) {
-      promptSignInForNotes();
-      return;
-    }
-
     // Switch to notes tab
     rightColumnTabsRef.current?.switchToNotes();
 
@@ -1836,14 +1453,9 @@ export default function AnalyzePage() {
       metadata: payload.metadata ?? null,
       source: payload.source,
     });
-  }, [promptSignInForNotes, user]);
+  }, []);
 
   const handleAddNote = useCallback(() => {
-    if (!user) {
-      promptSignInForNotes();
-      return;
-    }
-
     rightColumnTabsRef.current?.switchToNotes();
 
     setEditingNote({
@@ -1851,7 +1463,7 @@ export default function AnalyzePage() {
       metadata: null,
       source: "custom",
     });
-  }, [user, promptSignInForNotes]);
+  }, []);
 
   const handleSaveEditingNote = useCallback(async ({ noteText, selectedText, metadata }: { noteText: string; selectedText: string; metadata?: NoteMetadata }) => {
     if (!editingNote || !videoId) return;
@@ -1978,7 +1590,7 @@ export default function AnalyzePage() {
                 </h2>
                 <p className="mt-1.5 text-sm leading-relaxed text-slate-600">
                   {isRateLimitError
-                    ? AUTH_LIMIT_MESSAGE
+                    ? 'Rate limit exceeded. Please try again later.'
                     : error}
                 </p>
               </div>
@@ -2104,8 +1716,6 @@ export default function AnalyzePage() {
                   onSaveEditingNote={handleSaveEditingNote}
                   onCancelEditing={handleCancelEditing}
                   onAddNote={handleAddNote}
-                  isAuthenticated={!!user}
-                  onRequestSignIn={handleAuthRequired}
                   selectedLanguage={selectedLanguage}
                   onRequestTranslation={translateWithContext}
                   onLanguageChange={(langCode) => {
@@ -2137,26 +1747,6 @@ export default function AnalyzePage() {
         </div>
       )}
 
-      <AuthModal
-        open={authModalOpen}
-        onOpenChange={(open) => {
-          // Store video before modal opens
-          if (open && videoId && !user) {
-            storeCurrentVideoForAuth();
-          }
-          if (!open) {
-            setAuthModalTrigger('generation-limit');
-          }
-          setAuthModalOpen(open);
-        }}
-        trigger={authModalTrigger}
-        onSuccess={() => {
-          // Refresh rate limit info after successful auth
-          checkRateLimit();
-          // Check for pending video linking will happen via useEffect
-        }}
-        currentVideoId={videoId}
-      />
       <TranscriptExportDialog
         open={isExportDialogOpen}
         onOpenChange={handleExportDialogOpenChange}
@@ -2176,7 +1766,7 @@ export default function AnalyzePage() {
         error={exportErrorMessage}
         disableDownloadMessage={exportDisableMessage}
         hasSpeakerData={hasSpeakerData}
-        willConsumeTopup={subscriptionStatus?.willConsumeTopup}
+        willConsumeTopup={false}
         videoTitle={videoInfo?.title}
         translationProgress={translationProgress}
       />

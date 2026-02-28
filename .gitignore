@@ -29,6 +29,12 @@
 # supabase
 supabase/.temp/
 
+# SQLite database
+data/
+*.db
+*.db-wal
+*.db-shm
+
 # documentation (local only)
 docs/
 

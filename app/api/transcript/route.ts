@@ -1,22 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractVideoId } from '@/lib/utils';
-import { withSecurity, SECURITY_PRESETS } from '@/lib/security-middleware';
+
 import { shouldUseMockData, getMockTranscript } from '@/lib/mock-data';
 import { mergeTranscriptSegmentsIntoSentences } from '@/lib/transcript-sentence-merger';
-import { NO_CREDITS_USED_MESSAGE } from '@/lib/no-credits-message';
-
-function respondWithNoCredits(
+function respondWithError(
   payload: Record<string, unknown>,
   status: number
 ) {
-  return NextResponse.json(
-    {
-      ...payload,
-      creditsMessage: NO_CREDITS_USED_MESSAGE,
-      noCreditsUsed: true
-    },
-    { status }
-  );
+  return NextResponse.json(payload, { status });
 }
 
 // Helper function to fetch transcript from Supadata
@@ -144,13 +135,13 @@ async function handler(request: NextRequest) {
     const { url, lang, expectedDuration } = await request.json();
 
     if (!url) {
-      return respondWithNoCredits({ error: 'YouTube URL is required' }, 400);
+      return respondWithError({ error: 'YouTube URL is required' }, 400);
     }
 
     const videoId = extractVideoId(url);
 
     if (!videoId) {
-      return respondWithNoCredits({ error: 'Invalid YouTube URL' }, 400);
+      return respondWithError({ error: 'Invalid YouTube URL' }, 400);
     }
 
     if (shouldUseMockData()) {
@@ -183,7 +174,7 @@ async function handler(request: NextRequest) {
 
     const apiKey = process.env.SUPADATA_API_KEY;
     if (!apiKey) {
-      return respondWithNoCredits({ error: 'API configuration error' }, 500);
+      return respondWithError({ error: 'API configuration error' }, 500);
     }
 
     // Fetch transcript with retry logic for incomplete results
@@ -298,7 +289,7 @@ async function handler(request: NextRequest) {
     }
 
     if (!bestResult || bestResult.segments.length === 0) {
-      return respondWithNoCredits(
+      return respondWithError(
         { error: 'No transcript available for this video. The video may not have subtitles enabled.' },
         404
       );
@@ -360,8 +351,8 @@ async function handler(request: NextRequest) {
       stack: error instanceof Error ? error.stack : undefined,
       type: error?.constructor?.name
     });
-    return respondWithNoCredits({ error: 'Failed to fetch transcript' }, 500);
+    return respondWithError({ error: 'Failed to fetch transcript' }, 500);
   }
 }
 
-export const POST = withSecurity(handler, SECURITY_PRESETS.PUBLIC);
+export const POST = handler;

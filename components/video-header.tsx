@@ -6,7 +6,6 @@ import { formatDuration } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Star, Clock, User, Loader2 } from "lucide-react";
-import { useAuth } from "@/contexts/auth-context";
 import { toast } from "sonner";
 
 interface VideoHeaderProps {
@@ -22,16 +21,10 @@ export function VideoHeader({
   isFavorite = false,
   onFavoriteToggle
 }: VideoHeaderProps) {
-  const { user } = useAuth();
   const [isUpdating, setIsUpdating] = useState(false);
   const [favoriteStatus, setFavoriteStatus] = useState(isFavorite);
 
   const handleToggleFavorite = async () => {
-    if (!user) {
-      toast.error("Please sign in to save favorites");
-      return;
-    }
-
     setIsUpdating(true);
     try {
       const response = await fetch("/api/toggle-favorite", {
@@ -83,7 +76,7 @@ export function VideoHeader({
           </div>
         </div>
 
-        {user && (
+        {(
           <Button
             variant={favoriteStatus ? "default" : "outline"}
             size="sm"

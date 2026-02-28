@@ -88,8 +88,6 @@ interface NotesPanelProps {
   editingNote?: EditingNote | null;
   onSaveEditingNote?: (payload: { noteText: string; selectedText: string; metadata?: NoteMetadata }) => void;
   onCancelEditing?: () => void;
-  isAuthenticated?: boolean;
-  onSignInClick?: () => void;
   currentTime?: number;
   onTimestampClick?: (seconds: number) => void;
   onAddNote?: () => void;
@@ -114,8 +112,6 @@ export function NotesPanel({
   editingNote,
   onSaveEditingNote,
   onCancelEditing,
-  isAuthenticated = true,
-  onSignInClick,
   currentTime,
   onTimestampClick,
   onAddNote
@@ -128,26 +124,6 @@ export function NotesPanel({
       return acc;
     }, {} as Record<NoteSource, Note[]>);
   }, [notes]);
-
-  if (!isAuthenticated) {
-    return (
-      <div className="h-full flex flex-col items-center justify-center gap-3 px-6 text-center">
-        <div className="space-y-1.5">
-          <h3 className="text-sm font-semibold text-foreground">Sign in to save notes</h3>
-          <p className="text-xs text-muted-foreground">
-            Highlight transcript moments and keep your takeaways in one place.
-          </p>
-        </div>
-        <Button
-          size="sm"
-          className="rounded-full px-4"
-          onClick={() => onSignInClick?.()}
-        >
-          Sign in to save notes
-        </Button>
-      </div>
-    );
-  }
 
   if (!notes.length && !editingNote) {
     return (
