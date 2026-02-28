@@ -35,13 +35,9 @@ interface ImageCheatsheetCardProps {
   videoId: string;
   videoTitle?: string;
   videoAuthor?: string;
-  isAuthenticated?: boolean;
-  onRequestSignIn?: () => void;
   onImageGenerated?: (data: {
     imageUrl: string;
     modelUsed: string;
-    remaining: number | null;
-    limit: number;
     aspectRatio: string;
     style: string;
   }) => void;
@@ -49,28 +45,15 @@ interface ImageCheatsheetCardProps {
   onRequestTranslation?: TranslationRequestHandler;
 }
 
-interface LimitResponse {
-  canGenerate: boolean;
-  isAuthenticated: boolean;
-  tier?: "free" | "pro" | "anonymous";
-  remaining?: number | null;
-  limit?: number | null;
-  resetAt?: string | null;
-  requiresAuth?: boolean;
-  reason?: string | null;
-}
-
 // Default English labels
 const DEFAULT_LABELS = {
   generateCheatsheetImage: "Generate cheatsheet image",
   generatingCheatsheet: "Generating cheatsheet...",
   selectAspectRatioStyle: "Select aspect ratio & style",
-  limitReached: "Limit reached",
   aspectRatio: "Aspect ratio",
   style: "Style",
   generate: "Generate",
   cancel: "Cancel",
-  left: "left",
 };
 
 export function ImageCheatsheetCard({
@@ -78,17 +61,11 @@ export function ImageCheatsheetCard({
   videoId,
   videoTitle,
   videoAuthor,
-  isAuthenticated,
-  onRequestSignIn,
   onImageGenerated,
   selectedLanguage,
   onRequestTranslation,
 }: ImageCheatsheetCardProps) {
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isCheckingLimit, setIsCheckingLimit] = useState(false);
-  const [limit, setLimit] = useState<number | null>(null);
-  const [remaining, setRemaining] = useState<number | null>(null);
-  const [, setResetAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isConfiguring, setIsConfiguring] = useState(false);
   const [aspectRatio, setAspectRatio] = useState<string>("9:16");
@@ -111,12 +88,10 @@ export function ImageCheatsheetCard({
         onRequestTranslation(DEFAULT_LABELS.generateCheatsheetImage, `ui_cheatsheet:generateCheatsheetImage:${selectedLanguage}`),
         onRequestTranslation(DEFAULT_LABELS.generatingCheatsheet, `ui_cheatsheet:generatingCheatsheet:${selectedLanguage}`),
         onRequestTranslation(DEFAULT_LABELS.selectAspectRatioStyle, `ui_cheatsheet:selectAspectRatioStyle:${selectedLanguage}`),
-        onRequestTranslation(DEFAULT_LABELS.limitReached, `ui_cheatsheet:limitReached:${selectedLanguage}`),
         onRequestTranslation(DEFAULT_LABELS.aspectRatio, `ui_cheatsheet:aspectRatio:${selectedLanguage}`),
         onRequestTranslation(DEFAULT_LABELS.style, `ui_cheatsheet:style:${selectedLanguage}`),
         onRequestTranslation(DEFAULT_LABELS.generate, `ui_cheatsheet:generate:${selectedLanguage}`),
         onRequestTranslation(DEFAULT_LABELS.cancel, `ui_cheatsheet:cancel:${selectedLanguage}`),
-        onRequestTranslation(DEFAULT_LABELS.left, `ui_cheatsheet:left:${selectedLanguage}`),
       ]);
 
       if (!isCancelled) {
@@ -124,12 +99,10 @@ export function ImageCheatsheetCard({
           generateCheatsheetImage: translations[0],
           generatingCheatsheet: translations[1],
           selectAspectRatioStyle: translations[2],
-          limitReached: translations[3],
-          aspectRatio: translations[4],
-          style: translations[5],
-          generate: translations[6],
-          cancel: translations[7],
-          left: translations[8],
+          aspectRatio: translations[3],
+          style: translations[4],
+          generate: translations[5],
+          cancel: translations[6],
         });
       }
     };
@@ -146,42 +119,7 @@ export function ImageCheatsheetCard({
     };
   }, [selectedLanguage, onRequestTranslation]);
 
-  const limitReached = useMemo(() => {
-    if (!isAuthenticated) return false;
-    if (remaining === null || remaining === undefined) return false;
-    return remaining <= 0;
-  }, [isAuthenticated, remaining]);
-
-  const fetchLimit = useCallback(async () => {
-    setIsCheckingLimit(true);
-    try {
-      const res = await fetch("/api/image-limit");
-      const data: LimitResponse = await res.json();
-
-      setLimit(typeof data.limit === "number" ? data.limit : null);
-      setRemaining(
-        typeof data.remaining === "number" || data.remaining === null
-          ? data.remaining
-          : null
-      );
-      setResetAt(data.resetAt ?? null);
-    } catch (err) {
-      console.error("Failed to fetch image limit", err);
-    } finally {
-      setIsCheckingLimit(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void fetchLimit();
-  }, [fetchLimit]);
-
   const handleOpenConfigurator = useCallback(() => {
-    if (!isAuthenticated) {
-      onRequestSignIn?.();
-      return;
-    }
-
     if (!transcript || transcript.length === 0) {
       setError("Transcript is required before generating an image.");
       return;
@@ -189,15 +127,9 @@ export function ImageCheatsheetCard({
 
     setIsConfiguring(true);
     setError(null);
-  }, [isAuthenticated, onRequestSignIn, transcript]);
+  }, [transcript]);
 
   const handleGenerate = useCallback(async () => {
-    if (!isAuthenticated) {
-      onRequestSignIn?.();
-      setIsConfiguring(false);
-      return;
-    }
-
     if (!transcript || transcript.length === 0) {
       setError("Transcript is required before generating an image.");
       return;
@@ -239,20 +171,9 @@ export function ImageCheatsheetCard({
         return;
       }
 
-      // Update local quota state
-      setRemaining(
-        typeof data.remaining === "number" || data.remaining === null
-          ? data.remaining
-          : remaining
-      );
-      setLimit(typeof data.limit === "number" ? data.limit : limit);
-
-      // Notify parent component
       onImageGenerated?.({
         imageUrl: data.imageUrl,
         modelUsed: data.modelUsed || "gemini-3-pro-image-preview",
-        remaining: data.remaining,
-        limit: data.limit,
         aspectRatio: data.aspectRatio || aspectRatio,
         style: data.style || style,
       });
@@ -267,30 +188,20 @@ export function ImageCheatsheetCard({
       setIsGenerating(false);
     }
   }, [
-    isAuthenticated,
-    onRequestSignIn,
     videoId,
     transcript,
     videoTitle,
     videoAuthor,
     aspectRatio,
     style,
-    remaining,
-    limit,
     onImageGenerated,
   ]);
 
   const buttonText = useMemo(() => {
     if (isGenerating) return translatedLabels.generatingCheatsheet;
     if (isConfiguring) return translatedLabels.selectAspectRatioStyle;
-    if (!isAuthenticated) return translatedLabels.generateCheatsheetImage;
-    if (isCheckingLimit) return translatedLabels.generatingCheatsheet;
-    if (limitReached) return translatedLabels.limitReached;
-    if (remaining !== null && remaining !== undefined) {
-      return `${translatedLabels.generateCheatsheetImage} (${remaining} ${translatedLabels.left})`;
-    }
     return translatedLabels.generateCheatsheetImage;
-  }, [isGenerating, isConfiguring, isAuthenticated, isCheckingLimit, limitReached, remaining, translatedLabels]);
+  }, [isGenerating, isConfiguring, translatedLabels]);
 
   return (
     <div className="flex w-full flex-col items-end gap-2">
@@ -300,7 +211,7 @@ export function ImageCheatsheetCard({
         size="sm"
         className="self-end w-fit h-auto max-w-full sm:max-w-[80%] justify-start text-left whitespace-normal break-words leading-snug py-2 px-4 transition-colors hover:bg-neutral-100"
         onClick={handleOpenConfigurator}
-        disabled={isGenerating || limitReached || isCheckingLimit}
+        disabled={isGenerating}
       >
         {isGenerating ? (
           <Loader2 className="h-4 w-4 animate-spin mr-2 flex-shrink-0" />

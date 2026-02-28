@@ -111,8 +111,6 @@ interface AIChatProps {
   selectedLanguage?: string | null;
   translationCache?: Map<string, string>;
   onRequestTranslation?: TranslationRequestHandler;
-  isAuthenticated?: boolean;
-  onRequestSignIn?: () => void;
 }
 
 export function AIChat({
@@ -128,8 +126,6 @@ export function AIChat({
   onTakeNoteFromSelection,
   selectedLanguage,
   onRequestTranslation,
-  isAuthenticated,
-  onRequestSignIn
 }: AIChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -1127,8 +1123,6 @@ export function AIChat({
   const handleImageGenerated = useCallback((data: {
     imageUrl: string;
     modelUsed: string;
-    remaining: number | null;
-    limit: number;
     aspectRatio: string;
     style: string;
   }) => {
@@ -1173,8 +1167,6 @@ export function AIChat({
                 videoId={videoId}
                 videoTitle={videoTitle}
                 videoAuthor={videoInfo?.author}
-                isAuthenticated={isAuthenticated}
-                onRequestSignIn={onRequestSignIn}
                 onImageGenerated={handleImageGenerated}
                 selectedLanguage={selectedLanguage}
                 onRequestTranslation={onRequestTranslation}
