@@ -2,7 +2,13 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 
-const DB_PATH = path.join(process.cwd(), 'data', 'longcut.db');
+function getHomeDir(): string {
+  return process.env.HOME || process.env.USERPROFILE || require('os').homedir();
+}
+
+const DB_PATH = process.env.NODE_ENV === 'production'
+  ? path.join(getHomeDir(), '.longcut', 'longcut.db')
+  : path.join(process.cwd(), 'data', 'longcut.db');
 
 function createDatabase(): Database.Database {
   // Ensure data directory exists
